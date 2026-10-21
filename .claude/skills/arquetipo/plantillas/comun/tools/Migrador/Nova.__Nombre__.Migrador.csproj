@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Aplica los scripts de bd/ en orden. Los scripts van dentro del ejecutable. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <RootNamespace>Nova.__Nombre__.Migrador</RootNamespace>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.SqlClient" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\bd\*.sql" LogicalName="bd/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

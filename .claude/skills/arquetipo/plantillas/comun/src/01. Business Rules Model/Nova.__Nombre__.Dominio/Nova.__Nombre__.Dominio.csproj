@@ -1,0 +1,3 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Capa 1: reglas del negocio. No depende de ningún otro proyecto ni de frameworks. -->
+</Project>

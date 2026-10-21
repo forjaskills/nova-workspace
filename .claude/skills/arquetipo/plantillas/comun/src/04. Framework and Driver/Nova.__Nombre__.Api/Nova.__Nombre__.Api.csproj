@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <!-- Capa 4: arranque de la API. Une las capas y configura seguridad, errores y documentación. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" />
+    <PackageReference Include="Scalar.AspNetCore" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\03. Interface Adapter\Nova.__Nombre__.Adaptadores\Nova.__Nombre__.Adaptadores.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,28 @@
+<Solution>
+  <Folder Name="/01. Business Rules Model/">
+    <Project Path="src/01. Business Rules Model/Nova.__Nombre__.Dominio/Nova.__Nombre__.Dominio.csproj" />
+  </Folder>
+  <Folder Name="/02. Application Rules Model/">
+    <Project Path="src/02. Application Rules Model/Nova.__Nombre__.Aplicacion/Nova.__Nombre__.Aplicacion.csproj" />
+  </Folder>
+  <Folder Name="/03. Interface Adapter/">
+    <Project Path="src/03. Interface Adapter/Nova.__Nombre__.Adaptadores/Nova.__Nombre__.Adaptadores.csproj" />
+  </Folder>
+  <Folder Name="/04. Framework and Driver/">
+    <Project Path="src/04. Framework and Driver/Nova.__Nombre__.Api/Nova.__Nombre__.Api.csproj" />
+  </Folder>
+  <Folder Name="/05. Tests/">
+    <Project Path="tests/Nova.__Nombre__.Pruebas.Unitarias/Nova.__Nombre__.Pruebas.Unitarias.csproj" />
+    <Project Path="tests/Nova.__Nombre__.Pruebas.Integracion/Nova.__Nombre__.Pruebas.Integracion.csproj" />
+    <Project Path="tests/Nova.__Nombre__.Pruebas.Arquitectura/Nova.__Nombre__.Pruebas.Arquitectura.csproj" />
+  </Folder>
+  <Folder Name="/tools/">
+    <Project Path="tools/Migrador/Nova.__Nombre__.Migrador.csproj" />
+  </Folder>
+  <Folder Name="/Solution Items/">
+    <File Path="Directory.Build.props" />
+    <File Path="Directory.Packages.props" />
+    <File Path="global.json" />
+    <File Path="README.md" />
+  </Folder>
+</Solution>

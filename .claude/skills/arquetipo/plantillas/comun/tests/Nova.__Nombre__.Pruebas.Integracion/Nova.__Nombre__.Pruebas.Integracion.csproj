@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="xunit.v3" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\04. Framework and Driver\Nova.__Nombre__.Api\Nova.__Nombre__.Api.csproj" />
+    <ProjectReference Include="..\..\tools\Migrador\Nova.__Nombre__.Migrador.csproj" />
+  </ItemGroup>
+</Project>
