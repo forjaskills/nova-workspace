@@ -1,0 +1,22 @@
+{
+  "profiles": {
+    "DEV": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:__PUERTO_DEV__",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Development" }
+    },
+    "QA": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:__PUERTO_QA__",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "QA" }
+    },
+    "PROD": {
+      "commandName": "Project",
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:__PUERTO_PROD__",
+      "environmentVariables": { "ASPNETCORE_ENVIRONMENT": "Production" }
+    }
+  }
+}

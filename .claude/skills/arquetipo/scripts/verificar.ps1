@@ -3,9 +3,13 @@
   Verifica un proyecto creado por el arquetipo y termina con una tabla ✅/❌ (código de salida 0 solo
   si todo está en verde). Cada tipo tiene su tabla:
     seguridad · servicio : compila, pruebas, base, arranca, login / acepta el JWT, repo
+    gateway              : compila, pruebas, arranca, enruta, protege, CORS y límites, repo
+    web                  : dependencias, compila, pruebas, arranca, de punta a punta en un navegador, repo
 .EXAMPLE
   .\verificar.ps1 -Nombre seguridad
   .\verificar.ps1 -Nombre pedidos
+  .\verificar.ps1 -Nombre gateway
+  .\verificar.ps1 -Nombre web
 #>
 [CmdletBinding()]
 param(
@@ -78,7 +82,8 @@ function Levantar($Proyecto) {
         return "el puerto $puerto ya está en uso: cierra lo que esté corriendo ahí"
     }
     $p = Pascal $Proyecto.nombre.Substring(5)
-    $api = "src\04. Framework and Driver\Nova.$p.Api"
+    # El gateway no tiene capas: su Api está directo en src/.
+    $api = if ($Proyecto.tipo -eq 'gateway') { "src\Nova.$p.Api" } else { "src\04. Framework and Driver\Nova.$p.Api" }
     $bin = Join-Path $Espacio "$($Proyecto.carpeta)\$api\bin\Debug\net10.0"
     $log = Join-Path $env:TEMP "$($Proyecto.nombre)-verificar.log"
     $env:ASPNETCORE_ENVIRONMENT = 'Development'
@@ -113,6 +118,14 @@ function Encender($Otro) {
     return $null
 }
 
+function EncenderVarios($Lista) {
+    foreach ($otro in $Lista) {
+        $motivo = Encender $otro
+        if ($motivo) { return $motivo }
+    }
+    return $null
+}
+
 # Filas 1 y 2 de los proyectos .NET. Devuelve si compiló.
 function CompilarYProbar {
     $build = & dotnet build --nologo 2>&1 | Out-String
@@ -123,7 +136,7 @@ function CompilarYProbar {
     else { Anotar 1 'Compila' 'falla' (($build -split "`n" | Where-Object { $_ -match 'error' } | Select-Object -First 3) -join ' | ') }
     if (-not $compila) { return $false }
 
-    $titulo = 'Pruebas: unitarias, integración y arquitectura'
+    $titulo = if ($proyecto.tipo -eq 'gateway') { 'Pruebas: rutas, token, CORS y límites' } else { 'Pruebas: unitarias, integración y arquitectura' }
     $pruebas = & dotnet test --no-build 2>&1 | Out-String
     $total = if ($pruebas -match 'total:\s*(\d+)') { $Matches[1] } else { '?' }
     $correctas = if ($pruebas -match '(correcto|succeeded):\s*(\d+)') { $Matches[2] } else { '0' }
@@ -157,6 +170,7 @@ function Alterar([string]$Token) {
 
 $seg = $registro | Where-Object { $_.tipo -eq 'seguridad' } | Select-Object -First 1
 $servicios = @($registro | Where-Object { $_.tipo -eq 'servicio' })
+$gateway = $registro | Where-Object { $_.tipo -eq 'gateway' } | Select-Object -First 1
 
 # ==================================================================================================
 function VerificarBackend {
@@ -225,15 +239,192 @@ function VerificarBackend {
 }
 
 # ==================================================================================================
+function VerificarGateway {
+    if (-not (CompilarYProbar)) {
+        foreach ($n in 3..7) { Anotar $n '(no se probó)' 'omitido' 'primero tiene que compilar' }
+        return
+    }
+    Anotar 3 'Base de datos' 'omitido' 'el gateway no tiene base'
+
+    # 4. Arranca y ve a cada servicio (se encienden antes, para que /salud diga Healthy) ------------
+    $puerto = $proyecto.puertos.DEV
+    $base = "http://localhost:$puerto"
+    $motivo = EncenderVarios (@($seg) + $servicios)
+    if (-not $motivo) { $motivo = Levantar $proyecto }
+    if ($motivo) {
+        Anotar 4 "Arranca en :$puerto y /salud" 'falla' $motivo
+        foreach ($n in 5..7) { Anotar $n '(no se probó)' 'omitido' 'el gateway no arrancó' }
+        return
+    }
+    $salud = Llamar 'GET' "$base/salud"
+    if ($salud.Cuerpo -eq 'Healthy') { Anotar 4 "Arranca en :$puerto y /salud" 'ok' "Healthy (responden nova-seguridad y $($servicios.Count) servicio(s))" }
+    else { Anotar 4 "Arranca en :$puerto y /salud" 'falla' "$($salud.Cuerpo) (¿algún servicio apagado?)" }
+
+    # 5. El login pasa por el gateway hasta Seguridad ---------------------------------------------
+    $urlLogin = "$base/seguridad/api/v1/sesion"
+    $login = Login $urlLogin 'cliente.demo' 'NovaDemo#1'
+    $token = TokenDe $login
+    if ($token) { Anotar 5 'Enruta a Seguridad' 'ok' "POST /seguridad/api/v1/sesion → 200 con JWT" }
+    else { Anotar 5 'Enruta a Seguridad' 'falla' "POST /seguridad/api/v1/sesion → $($login.Estado)" }
+
+    # 6. El servicio solo se alcanza con un token válido ------------------------------------------
+    $n = $servicios[0].nombre.Substring(5)
+    $url = "$base/$n/api/v1/quien-soy"
+    $sinToken = Llamar 'GET' $url $null $null
+    $conToken = Llamar 'GET' $url $null $token
+    $conAlterado = Llamar 'GET' $url $null (Alterar $token)
+    $usuario = if ($conToken.Estado -eq 200) { ($conToken.Cuerpo | ConvertFrom-Json).usuario } else { '' }
+    if ($sinToken.Estado -eq 401 -and $conToken.Estado -eq 200 -and $usuario -eq 'cliente.demo' -and $conAlterado.Estado -eq 401) {
+        Anotar 6 "Protege /$n" 'ok' "sin token → 401 · con token → 200 (cliente.demo, desde nova-$n) · alterado → 401"
+    }
+    else { Anotar 6 "Protege /$n" 'falla' "sin token $($sinToken.Estado) · con token $($conToken.Estado) · alterado $($conAlterado.Estado)" }
+
+    # 7. CORS y límite de intentos de login --------------------------------------------------------
+    # La web tiene su bloque fijo (30): en DEV, el puerto 3001.
+    $origenWeb = "http://localhost:$(30 * 100 + 1)"
+    $pregunta = @{ 'Origin' = $origenWeb; 'Access-Control-Request-Method' = 'GET'; 'Access-Control-Request-Headers' = 'authorization' }
+    $corsWeb = Llamar 'OPTIONS' $url $null $null $pregunta
+    $pregunta.Origin = 'https://sitio-ajeno.example'
+    $corsAjeno = Llamar 'OPTIONS' $url $null $null $pregunta
+    $webPasa = "$($corsWeb.Cabeceras['Access-Control-Allow-Origin'])" -eq $origenWeb
+    $ajenoPasa = [bool]"$($corsAjeno.Cabeceras['Access-Control-Allow-Origin'])"
+    $intento = 1
+    $limite = 0
+    while ($intento -lt 7) {
+        $intento++
+        $limite = (Login $urlLogin 'cliente.demo' 'clave-equivocada').Estado
+        if ($limite -eq 429) { break }
+    }
+    if ($webPasa -and -not $ajenoPasa -and $limite -eq 429) {
+        Anotar 7 'CORS y límites' 'ok' "CORS: $origenWeb sí · otro sitio no · login: intento $intento en 1 min → 429"
+    }
+    else { Anotar 7 'CORS y límites' 'falla' "CORS web $(if ($webPasa) { 'sí' } else { 'no' }) · otro sitio $(if ($ajenoPasa) { 'sí' } else { 'no' }) · intento $intento → $limite" }
+}
+
+# ==================================================================================================
+function Npm([string]$Argumentos) {
+    # Sin colores: en algunas consolas Vitest y Playwright imprimen códigos ANSI («[32m7 passed») y la tabla
+    # leía «0 en verde» aunque las pruebas pasaran (pasó en la MV). Se pide sin color y se limpia lo que quede.
+    $env:NO_COLOR = '1'; $env:FORCE_COLOR = '0'
+    try { $salida = & cmd /c "npm $Argumentos 2>&1" | Out-String }
+    finally { Remove-Item Env:NO_COLOR, Env:FORCE_COLOR -ErrorAction SilentlyContinue }
+    $codigo = $LASTEXITCODE
+    $salida = $salida -replace "$([char]27)\[[0-9;]*[A-Za-z]", ''
+    return [pscustomobject]@{ Ok = ($codigo -eq 0); Salida = $salida }
+}
+
+function LevantarWeb {
+    $puerto = $proyecto.puertos.DEV
+    if ((Llamar 'GET' "http://localhost:$puerto/login").Estado -ne 0) {
+        return "el puerto $puerto ya está en uso: cierra lo que esté corriendo ahí"
+    }
+    $log = Join-Path $env:TEMP "$($proyecto.nombre)-verificar.log"
+    # La compilación de producción, apuntando al gateway de DEV.
+    $env:NOVA_GATEWAY_URL = "http://localhost:$($gateway.puertos.DEV)"
+    try {
+        $proceso = Start-Process -FilePath 'node' -ArgumentList 'node_modules/next/dist/bin/next', 'start', '--port', "$puerto" `
+            -WorkingDirectory $carpeta -RedirectStandardOutput $log -RedirectStandardError "$log.err" -WindowStyle Hidden -PassThru
+    }
+    finally { Remove-Item Env:NOVA_GATEWAY_URL -ErrorAction SilentlyContinue }
+    $procesos.Add($proceso)
+    for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 500
+        if ((Llamar 'GET' "http://localhost:$puerto/login").Estado -eq 200) { return $null }
+        if ($proceso.HasExited) { return "se cerró al arrancar (ver $log)" }
+    }
+    return "no respondió /login en 30 s (ver $log)"
+}
+
+function VerificarWeb {
+    $env:NEXT_TELEMETRY_DISABLED = '1'
+
+    # 1. Dependencias exactas del package-lock y sin vulnerabilidades altas -----------------------
+    $ci = Npm 'ci --no-audit --no-fund'
+    if (-not $ci.Ok) {
+        Anotar 1 'Dependencias' 'falla' (($ci.Salida -split "`n" | Where-Object { $_ -match 'ERR' } | Select-Object -First 2) -join ' | ')
+        foreach ($n in 2..5) { Anotar $n '(no se probó)' 'omitido' 'primero tienen que instalarse las dependencias' }
+        return
+    }
+    # La compuerta es lo que llega a producción. Lo de desarrollo (lint, pruebas) no se despliega:
+    # se informa con nombre para vigilarlo, pero no detiene el proyecto.
+    $prod = try { ((Npm 'audit --omit=dev --json').Salida | ConvertFrom-Json).metadata.vulnerabilities } catch { $null }
+    $todo = try { (Npm 'audit --json').Salida | ConvertFrom-Json } catch { $null }
+    $deDesarrollo = if ($todo) {
+        @($todo.vulnerabilities.PSObject.Properties | Where-Object { $_.Value.severity -in 'high', 'critical' -and @($_.Value.via | Where-Object { $_ -isnot [string] }).Count -gt 0 } |
+            ForEach-Object { $_.Name })
+    } else { @() }
+    $notaDesarrollo = if ($deDesarrollo.Count -gt 0) { " · desarrollo: $($todo.metadata.vulnerabilities.high + $todo.metadata.vulnerabilities.critical) alta(s) por $($deDesarrollo -join ', ') (solo lint, sin parche publicado: vigilar)" } else { ' · desarrollo: 0' }
+    $navegador = Npm 'exec -- playwright install chromium'
+    if (-not $prod) { Anotar 1 'Dependencias' 'falla' 'npm audit no respondió' }
+    elseif ($prod.high + $prod.critical -gt 0) { Anotar 1 'Dependencias' 'falla' "npm audit (producción): $($prod.critical) crítica(s) · $($prod.high) alta(s)" }
+    elseif (-not $navegador.Ok) { Anotar 1 'Dependencias' 'falla' 'no se pudo instalar el navegador de Playwright' }
+    else { Anotar 1 'Dependencias' 'ok' "npm ci · audit de producción: 0 altas o críticas$notaDesarrollo · Chromium listo" }
+
+    # 2. Compila (TypeScript incluido) y lint sin advertencias -------------------------------------
+    $build = Npm 'run build'
+    $lint = Npm 'run lint'
+    $avisos = @($build.Salida -split "`n" | Where-Object { $_ -match '^\s*⚠' -and $_ -notmatch 'telemetry' }).Count
+    if ($build.Ok -and $lint.Ok -and $avisos -eq 0) { Anotar 2 'Compila' 'ok' 'next build + TypeScript + lint: sin errores ni advertencias' }
+    else {
+        $detalle = (($build.Salida + $lint.Salida) -split "`n" | Where-Object { $_ -match 'rror|⚠|warning' } | Select-Object -First 3) -join ' | '
+        Anotar 2 'Compila' 'falla' $detalle
+        if (-not $build.Ok) { foreach ($n in 3..5) { Anotar $n '(no se probó)' 'omitido' 'primero tiene que compilar' }; return }
+    }
+
+    # 3. Pruebas unitarias ----------------------------------------------------------------------
+    $unit = Npm 'test'
+    $pasadas = if ($unit.Salida -match 'Tests\s+(\d+) passed') { $Matches[1] } else { '0' }
+    if ($unit.Ok) { Anotar 3 'Pruebas unitarias (Vitest)' 'ok' "$pasadas en verde" }
+    else { Anotar 3 'Pruebas unitarias (Vitest)' 'falla' (($unit.Salida -split "`n" | Where-Object { $_ -match 'FAIL|failed' } | Select-Object -First 3) -join ' | ') }
+
+    # 4. Arranca, con todo lo que hay detrás encendido -------------------------------------------
+    $puerto = $proyecto.puertos.DEV
+    $motivo = $null
+    if (-not $gateway) { $motivo = 'no hay gateway registrado' }
+    else { $motivo = EncenderVarios (@($seg) + $servicios + @($gateway)) }
+    if (-not $motivo) { $motivo = LevantarWeb }
+    if ($motivo) {
+        Anotar 4 "Arranca en :$puerto" 'falla' $motivo
+        Anotar 5 'De punta a punta' 'omitido' 'la web no arrancó'
+        return
+    }
+    Anotar 4 "Arranca en :$puerto" 'ok' "login responde · detrás: nova-gateway :$($gateway.puertos.DEV), nova-seguridad y $($servicios.Count) servicio(s)"
+
+    # 5. En un navegador de verdad: inicia sesión y llega al servicio a través del gateway ---------
+    # Antes, un login a través del gateway: con AUTO_CLOSE (lo trae SQL Server Express) la primera consulta
+    # reabre la base y tardó 10 s; Playwright espera 5 y la web salía en rojo sin tener la culpa (pasó al verificar nova-web).
+    # Gasta 1 de los 5 intentos por minuto del gateway; Playwright usa 3.
+    $reloj = [Diagnostics.Stopwatch]::StartNew()
+    $previo = Login "http://localhost:$($gateway.puertos.DEV)/seguridad/api/v1/sesion" 'cliente.demo' 'NovaDemo#1'
+    $reloj.Stop()
+    if ($previo.Estado -ne 200) {
+        Anotar 5 'De punta a punta (Playwright)' 'falla' "el login a través del gateway respondió $($previo.Estado) antes de abrir el navegador (ver nova-seguridad-verificar.log en la carpeta TEMP)"
+        return
+    }
+    $nota = if ($reloj.ElapsedMilliseconds -gt 3000) {
+        " · ojo: el primer login tardó $([math]::Round($reloj.ElapsedMilliseconds / 1000, 1)) s (base fría: ¿AUTO_CLOSE activado? lo apaga el DBA)"
+    } else { '' }
+    $env:BASE_URL = "http://localhost:$puerto"
+    try { $e2e = Npm 'run e2e' }
+    finally { Remove-Item Env:BASE_URL -ErrorAction SilentlyContinue }
+    $pasadas = if ($e2e.Salida -match '(\d+) passed') { $Matches[1] } else { '0' }
+    if ($e2e.Ok) { Anotar 5 'De punta a punta (Playwright)' 'ok' "$pasadas en verde: login → $($servicios[0].nombre) por el gateway · clave mala → aviso · sin sesión → login · cerrar sesión$nota" }
+    else { Anotar 5 'De punta a punta (Playwright)' 'falla' ((($e2e.Salida -split "`n" | Where-Object { $_ -match '✘|failed|Error:' } | Select-Object -First 3) -join ' | ') + $nota) }
+}
+
+# ==================================================================================================
 Write-Host "Verificando $($proyecto.nombre) ($($proyecto.tipo))" -ForegroundColor Cyan
 Push-Location $carpeta
 try {
-    VerificarBackend
-    VerificarRepo 7
+    switch ($proyecto.tipo) {
+        'gateway' { VerificarGateway; VerificarRepo 8 }
+        'web' { VerificarWeb; VerificarRepo 6 }
+        default { VerificarBackend; VerificarRepo 7 }
+    }
 }
 finally {
     Pop-Location
-    # Solo se cierran los procesos que levantó esta verificación (con sus hijos).
+    # Solo se cierran los procesos que levantó esta verificación (con sus hijos: next start abre otro node).
     foreach ($p in $procesos) { if (-not $p.HasExited) { & taskkill /PID $p.Id /T /F *> $null } }
 }
 

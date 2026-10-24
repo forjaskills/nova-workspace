@@ -103,6 +103,8 @@ try {
     Paso "Creando $repo"
     $descripcion = switch ($proyecto.tipo) {
         'seguridad' { 'Nova Retail: seguridad (login y JWT). Proyecto de ejemplo de Forja Skills.' }
+        'gateway' { 'Nova Retail: API pública (YARP: rutas, JWT, CORS, límites). Proyecto de ejemplo de Forja Skills.' }
+        'web' { 'Nova Retail: frontend Next.js (App Router, TypeScript). Proyecto de ejemplo de Forja Skills.' }
         default { "Nova Retail: API de $Nombre. Proyecto de ejemplo de Forja Skills." }
     }
     & gh repo create $repo "--$Visibilidad" --source . --remote origin --push --description $descripcion *> $null
