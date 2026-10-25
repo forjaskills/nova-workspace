@@ -1,0 +1,33 @@
+-- =============================================================================
+-- __NNNN__-modulo-__modulo__.sql
+-- Proyecto  : nova-__servicio__ · módulo __Modulo__ (creado por la skill nuevo-modulo)
+-- Qué hace  : TODO(nuevo-modulo) en una línea: tablas, secuencias, índices del módulo
+-- Ambiente  : cualquiera (el ejecutor elige la base; aquí no hay USE)
+-- Respaldo  : no requiere (solo crea lo que no existe)
+-- =============================================================================
+-- BORRADOR: el Migrador solo aplica archivos .sql. Cuando el script esté completo, quítale «.borrador»
+-- al nombre (un .sql aplicado no se vuelve a aplicar nunca: si se aplica a medias, hay que escribir otro).
+SET NOCOUNT ON;
+SET XACT_ABORT ON;
+
+BEGIN TRY
+    BEGIN TRAN;
+
+    PRINT 'Paso 1/1: tabla __Modulo__';
+    IF OBJECT_ID('dbo.__Modulo__') IS NULL
+        CREATE TABLE dbo.__Modulo__ (
+            Id UNIQUEIDENTIFIER NOT NULL CONSTRAINT PK___Modulo__ PRIMARY KEY
+            -- TODO(nuevo-modulo): columnas de la ficha, con sus CHECK (las reglas también se protegen aquí)
+        );
+
+    -- Validación posterior: lo creado existe.
+    IF OBJECT_ID('dbo.__Modulo__') IS NULL
+        THROW 50001, 'Validación: falta la tabla __Modulo__.', 1;
+
+    COMMIT;
+    PRINT 'OK: módulo __Modulo__ listo en la base.';
+END TRY
+BEGIN CATCH
+    IF @@TRANCOUNT > 0 ROLLBACK;
+    THROW;
+END CATCH
