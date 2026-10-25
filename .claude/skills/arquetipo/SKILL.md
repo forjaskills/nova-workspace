@@ -47,7 +47,7 @@ emite el JWT  lo acepta              enruta y lo valida   inicia sesión y llega
    `powershell -ExecutionPolicy Bypass -File .claude/skills/arquetipo/scripts/crear-repo.ps1 -Nombre <nombre>`
    Primero revisa que el correo de git sea el `noreply` de GitHub y que no haya secretos, rutas de
    usuario ni IPs; si encuentra algo, se detiene. Luego crea `main`, `develop` (por defecto) y `qa`, y
-   protege `main` y `develop`. Corre otra vez `verificar.ps1` para ver la fila del repo en verde.
+   protege `main`, `develop` y `qa` (solo por PR; las `feature/` se borran solas al unirse). Corre otra vez `verificar.ps1` para ver la fila del repo en verde.
 6. **Cerrar**: resume en 3 líneas qué se creó (carpeta, puertos DEV/QA/PROD, repo) y cómo probarlo:
    backend `http://localhost:<puerto DEV>/scalar` · gateway `http://localhost:5201/salud` · web `http://localhost:3001`.
 

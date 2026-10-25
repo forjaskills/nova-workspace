@@ -120,14 +120,17 @@ try {
     & gh repo edit $repo --default-branch develop *> $null
     Write-Host "   https://github.com/$repo"
 
-    Paso 'Protegiendo main y develop (solo por PR)'
+    Paso 'Protegiendo main, develop y qa (solo por PR)'
+    # Las ramas feature/ se borran solas al unirse: el repo no se llena de ramas viejas.
+    & gh api -X PATCH "repos/$repo" -F delete_branch_on_merge=true --silent *> $null
     $proteccion = '{"required_status_checks":null,"enforce_admins":true,' +
-        '"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null}'
+        '"required_pull_request_reviews":{"required_approving_review_count":0},"restrictions":null,' +
+        '"allow_force_pushes":false,"allow_deletions":false}'
     # A archivo y no por tubería: PowerShell 5.1 altera el texto que pasa por | a un programa nativo
     # y GitHub responde «Problems parsing JSON».
     $archivoProteccion = [IO.Path]::GetTempFileName()
     [IO.File]::WriteAllText($archivoProteccion, $proteccion, $utf8)
-    foreach ($rama in 'main', 'develop') {
+    foreach ($rama in 'main', 'develop', 'qa') {
         $salida = & gh api -X PUT "repos/$repo/branches/$rama/protection" --input $archivoProteccion 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) {
             $motivo = ($salida -split "`r?`n" | Where-Object { $_ -match '^gh:' } | Select-Object -First 1)
