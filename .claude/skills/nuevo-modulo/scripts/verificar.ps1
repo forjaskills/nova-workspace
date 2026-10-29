@@ -31,6 +31,9 @@ $carpeta = Join-Path $Espacio $proyecto.carpeta
 
 $resultados = New-Object System.Collections.Generic.List[object]
 $procesos = New-Object System.Collections.Generic.List[System.Diagnostics.Process]
+# Las llena la fila 4: el gateway encendido (para la web) y cuándo fue el último login (por el límite del gateway).
+$script:pila = $null
+$script:ultimoLogin = $null
 
 function Anotar([string]$Numero, [string]$Chequeo, [string]$Estado, [string]$Detalle) {
     $icono = @{ ok = '✅'; falla = '❌'; omitido = '⏭' }[$Estado]
@@ -156,8 +159,10 @@ function VerificarServicio {
     if (-not $motivo -and $gateway) { $motivo = Encender $gateway }
     if ($motivo) { Anotar 4 'Permisos en el token' 'falla' $motivo; Anotar 5 'API por el gateway' 'omitido' $motivo; return }
     $base = if ($gateway) { "http://localhost:$($gateway.puertos.DEV)" } else { $null }
+    $script:pila = $base
     $login = if ($base) { "$base/seguridad/api/v1/sesion" } else { "http://localhost:$($seg.puertos.DEV)/api/v1/sesion" }
     $token = Token $login 'cliente.demo'
+    $script:ultimoLogin = Get-Date
     $scopes = ScopesDe $token
     $faltan = @("$Servicio.leer", "$Servicio.escribir" | Where-Object { $scopes -notcontains $_ })
     if ($token -and $faltan.Count -eq 0) { Anotar 4 'Permisos en el token' 'ok' "cliente.demo trae $Servicio.leer y $Servicio.escribir" }
@@ -184,13 +189,119 @@ function VerificarServicio {
     else { Anotar 5 'API por el gateway' 'falla' "sin token $($sinToken.Estado) · listar $($lista.Estado) · crear $($creado.Estado) · ver lo creado $(if ($detalle) { $detalle.Estado } else { '-' })" }
 }
 
+# ==================================================================================================
+function Npm([string]$Carpeta, [string]$Argumentos) {
+    # Sin colores: Vitest y Playwright imprimen códigos ANSI («[32m7 passed») y la tabla leería «0 en verde».
+    $env:NO_COLOR = '1'; $env:FORCE_COLOR = '0'; $env:NEXT_TELEMETRY_DISABLED = '1'
+    Push-Location $Carpeta
+    try { $salida = & cmd /c "npm $Argumentos 2>&1" | Out-String }
+    finally { Pop-Location; Remove-Item Env:NO_COLOR, Env:FORCE_COLOR -ErrorAction SilentlyContinue }
+    $codigo = $LASTEXITCODE
+    $salida = $salida -replace "$([char]27)\[[0-9;]*[A-Za-z]", ''
+    return [pscustomobject]@{ Ok = ($codigo -eq 0); Salida = $salida }
+}
+
+# La compilación de producción de la web (next start) en su puerto DEV, apuntando al gateway de DEV.
+function LevantarWeb([string]$CarpetaWeb) {
+    $puerto = $web.puertos.DEV
+    if ((Llamar 'GET' "http://localhost:$puerto/login").Estado -ne 0) { return "el puerto $puerto ya está en uso: cierra lo que esté corriendo ahí (¿npm run dev?)" }
+    $log = Join-Path $env:TEMP "$($web.nombre)-modulo.log"
+    $env:NOVA_GATEWAY_URL = "http://localhost:$($gateway.puertos.DEV)"
+    try {
+        $proceso = Start-Process -FilePath 'node' -ArgumentList 'node_modules/next/dist/bin/next', 'start', '--port', "$puerto" `
+            -WorkingDirectory $CarpetaWeb -RedirectStandardOutput $log -RedirectStandardError "$log.err" -WindowStyle Hidden -PassThru
+    }
+    finally { Remove-Item Env:NOVA_GATEWAY_URL -ErrorAction SilentlyContinue }
+    $procesos.Add($proceso)
+    for ($i = 0; $i -lt 60; $i++) {
+        Start-Sleep -Milliseconds 500
+        if ((Llamar 'GET' "http://localhost:$puerto/login").Estado -eq 200) { return $null }
+        if ($proceso.HasExited) { return "se cerró al arrancar (ver $log)" }
+    }
+    return "no respondió /login en 30 s (ver $log)"
+}
+
+function VerificarWeb {
+    $chequeo = 'Web (lint · Vitest · build · Playwright)'
+    if (-not $web) { Anotar 6 'Web' 'omitido' 'no hay proyecto web registrado'; return }
+    $carpetaWeb = Join-Path $Espacio $web.carpeta
+    if (-not (Test-Path (Join-Path $carpetaWeb "features\$Modulo\api.ts"))) {
+        Anotar 6 $chequeo 'falla' "$($web.nombre) no tiene features\$Modulo\api.ts: corre el esqueleto (pone las pantallas) y escríbelas"
+        return
+    }
+    # Lo que dejó el esqueleto sin escribir. -LiteralPath y .NET: las rutas de Next llevan corchetes ([id]).
+    $conTodo = @(foreach ($c in "features\$Modulo", "app\(privado)\$Modulo", 'tests') {
+            $p = Join-Path $carpetaWeb $c
+            if ([IO.Directory]::Exists($p)) {
+                Get-ChildItem -LiteralPath $p -Recurse -File |
+                    Where-Object { [IO.File]::ReadAllText($_.FullName, $utf8).Contains('TODO(nuevo-modulo)') } |
+                    ForEach-Object { $_.FullName.Substring($carpetaWeb.Length + 1) }
+            }
+        })
+    if ($conTodo.Count -gt 0) {
+        Anotar 6 $chequeo 'falla' "quedan TODO(nuevo-modulo) en $($conTodo.Count) archivo(s) de $($web.nombre): $(($conTodo | Select-Object -First 3) -join ', ')"
+        return
+    }
+
+    # 1. Dependencias (solo si faltan), lint, pruebas unitarias y compilación -------------------
+    if (-not (Test-Path (Join-Path $carpetaWeb 'node_modules'))) {
+        $ci = Npm $carpetaWeb 'ci --no-audit --no-fund'
+        if (-not $ci.Ok) { Anotar 6 $chequeo 'falla' 'npm ci no pudo instalar las dependencias'; return }
+    }
+    $lint = Npm $carpetaWeb 'run lint'
+    $unit = Npm $carpetaWeb 'test'
+    $build = Npm $carpetaWeb 'run build'
+    $pasadas = if ($unit.Salida -match 'Tests\s+(\d+) passed') { $Matches[1] } else { '0' }
+    $partes = @()
+    if (-not $lint.Ok) { $partes += 'lint: ' + (($lint.Salida -split "`n" | Where-Object { $_ -match 'error|warning' } | Select-Object -First 2) -join ' | ') }
+    if (-not $unit.Ok) { $partes += 'Vitest: ' + (($unit.Salida -split "`n" | Where-Object { $_ -match 'FAIL|failed' } | Select-Object -First 2) -join ' | ') }
+    if (-not $build.Ok) { $partes += 'build: ' + (($build.Salida -split "`n" | Where-Object { $_ -match 'rror' } | Select-Object -First 2) -join ' | ') }
+    if (-not $build.Ok) { Anotar 6 $chequeo 'falla' ($partes -join ' · '); return }
+
+    # 2. Arranca, con seguridad, el servicio y el gateway que ya encendieron las filas 4 y 5 ------
+    if (-not $script:pila) { Anotar 6 $chequeo 'falla' (@($partes) + 'Playwright: no se probó (el gateway y los servicios no quedaron encendidos en las filas 4–5)' -join ' · '); return }
+    $motivo = LevantarWeb $carpetaWeb
+    if ($motivo) { Anotar 6 $chequeo 'falla' (@($partes) + "la web no arrancó: $motivo" -join ' · '); return }
+    $navegador = Npm $carpetaWeb 'exec -- playwright install chromium'
+    if (-not $navegador.Ok) { Anotar 6 $chequeo 'falla' 'no se pudo instalar el Chromium de Playwright (npx playwright install chromium)'; return }
+
+    # 3. En un navegador de verdad. El gateway deja 5 logins por minuto por IP y la fila 4 ya gastó uno:
+    #    si no pasó un minuto desde entonces, se espera lo que falte (así las pruebas no chocan con un 429).
+    if ($script:ultimoLogin) {
+        $falta = 61 - ((Get-Date) - $script:ultimoLogin).TotalSeconds
+        if ($falta -gt 0) { Write-Host "  · espero $([math]::Ceiling($falta)) s por el límite de logins del gateway"; Start-Sleep -Seconds ([math]::Ceiling($falta)) }
+    }
+    $env:BASE_URL = "http://localhost:$($web.puertos.DEV)"
+    try { $e2e = Npm $carpetaWeb 'run e2e' }
+    finally { Remove-Item Env:BASE_URL -ErrorAction SilentlyContinue }
+    $e2ePasadas = if ($e2e.Salida -match '(\d+) passed') { $Matches[1] } else { '0' }
+    # El resumen de Playwright nombra cada prueba fallida («1) [chromium] › tests\e2e\…spec.ts:23:5 › nombre»).
+    if (-not $e2e.Ok) {
+        $nombres = @($e2e.Salida -split "`n" | Where-Object { $_ -match '^\s*\d+\) \[' } | ForEach-Object { ($_ -replace '^\s*\d+\) \[[^\]]+\] › ', '').Trim() } | Select-Object -Unique -First 2)
+        $errores = @($e2e.Salida -split "`n" | Where-Object { $_ -match '^\s*(Error:|Expected|Received)' } | ForEach-Object { $_.Trim() } | Select-Object -First 3)
+        $partes += 'Playwright: ' + (@($nombres) + $errores -join ' | ')
+    }
+
+    if ($partes.Count -eq 0) { Anotar 6 $chequeo 'ok' "lint ✓ · Vitest $pasadas ✓ · build ✓ · Playwright $e2ePasadas ✓ (login → listado → detalle → crear → aparece en el listado)" }
+    else { Anotar 6 $chequeo 'falla' ($partes -join ' · ') }
+}
+
 function VerificarRama {
-    if (-not (Test-Path (Join-Path $carpeta '.git'))) { Anotar 7 'Rama del módulo' 'omitido' 'el servicio aún no es un repo git'; return }
-    $rama = & git -C $carpeta branch --show-current 2>$null
-    $pendientes = @(& git -C $carpeta status --porcelain 2>$null).Count
-    if ($rama -eq "feature/modulo-$Modulo" -and $pendientes -eq 0) { Anotar 7 'Rama del módulo' 'ok' "$rama · todo commiteado, lista para el PR a develop" }
-    elseif ($rama -ne "feature/modulo-$Modulo") { Anotar 7 'Rama del módulo' 'falla' "estás en «$rama»: el módulo va en feature/modulo-$Modulo" }
-    else { Anotar 7 'Rama del módulo' 'falla' "$rama · $pendientes archivo(s) sin commitear" }
+    # «, @(…)»: sin la coma, PowerShell aplana el par y el foreach recorre dos textos sueltos.
+    $repos = @(, @($proyecto.nombre, $carpeta))
+    if ($web -and (Test-Path (Join-Path $Espacio "$($web.carpeta)\features\$Modulo\api.ts"))) { $repos += , @($web.nombre, (Join-Path $Espacio $web.carpeta)) }
+    $estados = @(); $falla = $false; $sinGit = 0
+    foreach ($r in $repos) {
+        if (-not (Test-Path (Join-Path $r[1] '.git'))) { $sinGit++; continue }
+        $rama = & git -C $r[1] branch --show-current 2>$null
+        $pendientes = @(& git -C $r[1] status --porcelain 2>$null).Count
+        if ($rama -ne "feature/modulo-$Modulo") { $falla = $true; $estados += "$($r[0]): estás en «$rama» (va en feature/modulo-$Modulo)" }
+        elseif ($pendientes -gt 0) { $falla = $true; $estados += "$($r[0]): $pendientes archivo(s) sin commitear" }
+        else { $estados += "$($r[0]) ✓" }
+    }
+    if ($sinGit -eq $repos.Count) { Anotar 7 'Rama del módulo' 'omitido' 'los repos aún no son git'; return }
+    if ($falla) { Anotar 7 'Rama del módulo' 'falla' ($estados -join ' · ') }
+    else { Anotar 7 'Rama del módulo' 'ok' "feature/modulo-$Modulo · todo commiteado, lista para el PR a develop ($($estados -join ' · '))" }
 }
 
 # ==================================================================================================
@@ -198,12 +309,12 @@ Write-Host "Verificando el módulo $Modulo en $($proyecto.nombre)" -ForegroundCo
 Push-Location $carpeta
 try {
     VerificarServicio
-    Anotar 6 'Web' 'omitido' 'esta versión de la skill todavía no agrega pantallas'
+    VerificarWeb
     VerificarRama
 }
 finally {
     Pop-Location
-    # Solo se cierran los procesos que levantó esta verificación.
+    # Solo se cierran los procesos que levantó esta verificación (con sus hijos: next start abre otro node).
     foreach ($p in $procesos) { if (-not $p.HasExited) { & taskkill /PID $p.Id /T /F *> $null } }
 }
 
