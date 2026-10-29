@@ -6,7 +6,7 @@ export type Conexion = { usuario: string; id: string; roles: string[]; scopes: s
 /**
  * Pregunta a nova-__SERVICIO__ quién eres, a través del gateway. Prueba la cadena completa:
  * web → gateway (valida el token) → servicio (lo vuelve a validar).
- * Cuando llegue el primer módulo (nuevo-modulo), aquí van sus llamadas.
+ * Las llamadas de cada módulo van en features/<modulo>/api.ts (las pone la skill nuevo-modulo).
  */
 export async function obtenerConexion(token: string): Promise<Conexion> {
   try {

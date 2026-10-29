@@ -1,0 +1,167 @@
+.franja {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  margin: 0 0 1.25rem;
+  padding: 0.6rem 1rem;
+  border: 1px solid var(--borde);
+  border-radius: 8px;
+  background: var(--superficie);
+  color: var(--suave);
+  font-size: 0.9rem;
+}
+
+.franja strong {
+  color: var(--texto);
+}
+
+.encabezado {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.encabezado h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.boton {
+  display: inline-block;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  background: var(--acento);
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin: 0 0 1rem;
+  padding: 0;
+  list-style: none;
+}
+
+.filtros a {
+  display: inline-block;
+  padding: 0.2rem 0.7rem;
+  border: 1px solid var(--borde);
+  border-radius: 999px;
+  color: var(--suave);
+  text-decoration: none;
+  font-size: 0.9rem;
+}
+
+.filtros a[aria-current='page'] {
+  border-color: var(--acento);
+  color: var(--acento);
+  font-weight: 600;
+}
+
+.envoltura {
+  overflow-x: auto;
+}
+
+.tabla {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--superficie);
+}
+
+.tabla th,
+.tabla td {
+  padding: 0.55rem 0.75rem;
+  border-bottom: 1px solid var(--borde);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tabla th {
+  color: var(--suave);
+  font-weight: 600;
+  font-size: 0.85rem;
+}
+
+.tabla .numero {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.tabla tfoot td {
+  font-weight: 700;
+  border-bottom: 0;
+}
+
+.tabla a {
+  color: var(--acento);
+  font-weight: 600;
+}
+
+.estado {
+  display: inline-block;
+  padding: 0.05rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--borde);
+  font-size: 0.85rem;
+}
+
+.paginas {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 1rem;
+  color: var(--suave);
+}
+
+.paginas a {
+  color: var(--acento);
+}
+
+.lineas {
+  display: grid;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.linea {
+  display: grid;
+  grid-template-columns: minmax(10rem, 2fr) minmax(6rem, 1fr) minmax(7rem, 1fr) auto;
+  gap: 0.5rem;
+  align-items: end;
+}
+
+.linea input {
+  width: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 40rem) {
+  .linea {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.estimado {
+  margin: 1rem 0;
+  font-size: 1.1rem;
+}
+
+.acciones {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.enlace {
+  color: var(--acento);
+  font-weight: 600;
+}

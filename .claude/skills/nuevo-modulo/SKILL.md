@@ -1,6 +1,6 @@
 ---
 name: nuevo-modulo
-description: Agrega un módulo de negocio (Pedidos, Productos, Clientes…) a un servicio de Nova Retail creado con `arquetipo`, respetando la arquitectura — cada archivo en su capa (dominio con sus reglas, casos de uso, controlador, EF Core, script SQL, pruebas), los permisos del servicio en nova-seguridad, en una rama feature/ — y lo verifica de verdad (compila, pruebas con las de arquitectura, base, permisos en el token y la API a través del gateway). Usar cuando se pida agregar, crear o construir un módulo, una funcionalidad de negocio, un CRUD, una entidad o un recurso de la API en un servicio existente («agrega el módulo de pedidos», «necesito productos en nova-catalogo», «crea la API de clientes»). Para crear un proyecto o servicio nuevo, usa `arquetipo`.
+description: Agrega un módulo de negocio (Pedidos, Productos, Clientes…) a un servicio de Nova Retail creado con `arquetipo`, respetando la arquitectura — cada archivo en su capa (dominio con sus reglas, casos de uso, controlador, EF Core, script SQL, pruebas), los permisos del servicio en nova-seguridad, sus pantallas en nova-web (listado, detalle y formulario), en una rama feature/ — y lo verifica de verdad (compila, pruebas con las de arquitectura, base, permisos en el token, la API a través del gateway y la web en un navegador con Playwright). Usar cuando se pida agregar, crear o construir un módulo, una funcionalidad de negocio, un CRUD, una entidad o un recurso de la API en un servicio existente, o las pantallas de un módulo que ya tiene su backend («agrega el módulo de pedidos», «necesito productos en nova-catalogo», «crea la API de clientes», «hazle las pantallas a pedidos»). Para crear un proyecto o servicio nuevo, usa `arquetipo`.
 ---
 
 # nuevo-modulo
@@ -24,11 +24,16 @@ Si falta alguno, pregúntalo. Si el servicio no existe, ofrece crearlo con `arqu
 1. **La ficha primero.** Antes de una línea de código, arma con el dev la ficha del módulo (qué es, campos, estados,
    reglas con su código de error, quién puede qué, la API). Plantilla y ejemplo: `referencias/ficha-modulo.md`.
    **Pregunta lo que no sepas; no inventes reglas.** Muéstrale la ficha y espera su OK.
+   **Si el módulo ya existe y faltan sus pantallas**, la ficha ya está en `docs/modulos/<modulo>.md` del servicio:
+   léela junto con su `Dtos.cs` y propón qué tiene cada pantalla (columnas y filtros del listado, datos del detalle,
+   campos del formulario, qué se calcula en el servidor). Muéstraselo al dev y espera su OK.
 2. **Esqueleto**:
    `powershell -ExecutionPolicy Bypass -File .claude/skills/nuevo-modulo/scripts/esqueleto.ps1 -Servicio <servicio> -Modulo <Modulo> -Entidad <Entidad>`
    Crea la rama `feature/modulo-<modulo>` (desde `develop`), un archivo por capa con marcas `TODO(nuevo-modulo)`,
-   el registro del repositorio, el script SQL como `.sql.borrador`, la ficha en `docs/modulos/` y, si es el primer
-   módulo del servicio, el script de permisos en nova-seguridad. Muestra al dev el resumen por capas tal como sale.
+   el registro del repositorio, el script SQL como `.sql.borrador`, la ficha en `docs/modulos/`, si es el primer
+   módulo del servicio, el script de permisos en nova-seguridad y, si hay `nova-web`, sus pantallas (en su propia rama
+   `feature/modulo-<modulo>`; reemplaza solo la página «Conectado a…» del arquetipo, nunca otra). Si el servicio
+   **ya tiene** el módulo, no lo toca y agrega solo las pantallas. Muestra al dev el resumen tal como sale.
 3. **Escribe el módulo, capa por capa, de adentro hacia afuera** (dónde va cada cosa: `referencias/ubicacion.md`):
    1. **Dominio**: la entidad con sus reglas (fábrica que valida, métodos para cada acción, nada de setters
       públicos), objetos valor (`record`), enums de estado, el puerto `IRepositorio<Modulo>`.
@@ -41,14 +46,22 @@ Si falta alguno, pregúntalo. Si el servicio no existe, ofrece crearlo con `arqu
    5. **Pruebas**: unitarias (una por regla de la ficha, sin base) e integración (HTTP + SQL Server `_PRUEBAS`:
       401, 403, 201, lo ajeno → 404, cada error → 400 con su código). Y `docs/modulos/<modulo>.ejemplo.json`: el
       cuerpo para crear uno, que usa la verificación.
-   Al terminar no queda ningún `TODO(nuevo-modulo)` (búscalo).
+   6. **Web** (`nova-web`, de la API hacia la pantalla; dónde va cada cosa: `referencias/ubicacion.md`, sección web):
+      - **Abre el `Dtos.cs` del servicio** y copia sus campos a `features/<modulo>/api.ts`. Los tipos salen de lo
+        que la API devuelve de verdad, no de la ficha ni de memoria.
+      - El listado (con sus filtros), el detalle y el formulario con lo que el usuario escribe. Lo que calcula el
+        dominio (un total) se puede mostrar como «estimado» mientras escribe, pero nunca se manda.
+      - Las pruebas: Vitest para `formulario.ts` y `formato.ts`; Playwright para el recorrido
+        login → listado → detalle → crear → aparece en el listado, con **un solo** login por archivo.
+   Al terminar no queda ningún `TODO(nuevo-modulo)` (búscalo; en la web, la fila 6 lo exige).
 4. **Verificar** (obligatorio, aunque haya apuro):
    `powershell -ExecutionPolicy Bypass -File .claude/skills/nuevo-modulo/scripts/verificar.ps1 -Servicio <servicio> -Modulo <modulo>`
-   Enciende seguridad, el servicio y el gateway si hace falta, y cierra solo lo que encendió. Muestra la tabla tal
-   como sale. Una fila en rojo: lee el detalle, explica la causa en una frase y corrige.
+   Enciende seguridad, el servicio, el gateway y la web si hace falta, y cierra solo lo que encendió. Muestra la tabla
+   tal como sale. Una fila en rojo: lee el detalle, explica la causa en una frase y corrige. Si Playwright falla,
+   `test-results/<prueba>/error-context.md` dice qué había en la página (y el log de la web, el error del servidor).
    **Si falla una prueba de arquitectura, se mueve el código a su capa: la regla nunca se relaja.**
 5. **Subir** (con el OK del dev, porque publica): commit en `feature/modulo-<modulo>` de cada repo tocado (el
-   servicio y, si cambió, nova-seguridad), push y un PR a `develop` con la ficha como descripción
+   servicio, nova-seguridad si cambió y nova-web si tiene pantallas), push y un PR a `develop` con la ficha como descripción
    (`gh pr create --base develop`). `release/` y `hotfix/` no se tocan aquí: nacen al preparar una versión o
    corregir producción.
 6. **Cerrar**: en 3 líneas, qué se agregó (rutas de la API, tablas, permisos), la tabla de verificación y los PR.
@@ -62,6 +75,8 @@ Si falta alguno, pregúntalo. Si el servicio no existe, ofrece crearlo con `arqu
 - Editar un `.sql` que ya se aplicó en algún ambiente: se escribe uno nuevo.
 - Aceptar del cliente lo que el dominio calcula (totales, estados, dueños): el dueño sale del token (`sub`).
 - Relajar o borrar una prueba para que pase.
+- En la web: llamar a la API desde el navegador (todo pasa por `lib/api/cliente.ts`, en el servidor), guardar el token
+  fuera de su cookie httpOnly, o escribir los tipos sin mirar el `Dtos.cs` real.
 
 ## Lo que deja (ejemplo: Pedidos en nova-pedidos)
 
@@ -73,4 +88,7 @@ bd/0001-modulo-pedidos.sql · bd/0002-pedidos-demo.sql
 tests/…Unitarias/Pedidos/ · tests/…Integracion/PedidosPruebas.cs
 docs/modulos/pedidos.md (la ficha) · pedidos.ejemplo.json
 nova-seguridad: bd/0003-scopes-pedidos.sql (pedidos.leer, pedidos.escribir)
+nova-web: features/pedidos/ (api · formato · formulario · acciones · Franja · TablaPedidos · FormularioPedido · estilos)
+          app/(privado)/pedidos/ (layout con la franja · listado · [id] detalle + no encontrado · nuevo)
+          tests/unit/pedidos.test.ts · tests/e2e/pedidos.spec.ts
 ```

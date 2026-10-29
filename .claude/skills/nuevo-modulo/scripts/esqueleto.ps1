@@ -38,9 +38,8 @@ $ServicioP = $Servicio.Substring(0, 1).ToUpperInvariant() + $Servicio.Substring(
 $moduloMin = $Modulo.ToLowerInvariant()
 $entidadCamel = $Entidad.Substring(0, 1).ToLowerInvariant() + $Entidad.Substring(1)
 $carpeta = Join-Path $Espacio $proyecto.carpeta
-if (Test-Path (Join-Path $carpeta "src\01. Business Rules Model\Nova.$ServicioP.Dominio\$Modulo")) {
-    Detener "El módulo $Modulo ya existe en $($proyecto.nombre). No sobrescribo módulos."
-}
+# Si el servicio ya tiene el módulo (su backend se hizo antes), solo faltan las pantallas: el servicio no se toca.
+$soloWeb = Test-Path (Join-Path $carpeta "src\01. Business Rules Model\Nova.$ServicioP.Dominio\$Modulo")
 
 # 2. Rama: el módulo se trabaja en feature/modulo-<modulo> (GitFlow) --------------------------------
 function PrepararRama([string]$Repo) {
@@ -52,6 +51,11 @@ function PrepararRama([string]$Repo) {
         $rama = & git -C $Repo branch --show-current
         $objetivo = "feature/modulo-$moduloMin"
         if ($rama -eq $objetivo) { return "ya en $objetivo" }
+        # La rama ya existe (aquí o en GitHub) y no estás en ella: lo que haya en ella se revisa estando en ella.
+        & git -C $Repo rev-parse --verify --quiet "refs/heads/$objetivo" 2>&1 | Out-Null
+        $local = $LASTEXITCODE -eq 0
+        & git -C $Repo rev-parse --verify --quiet "refs/remotes/origin/$objetivo" 2>&1 | Out-Null
+        if ($local -or $LASTEXITCODE -eq 0) { Detener "$Repo ya tiene la rama ${objetivo}: cámbiate a ella (git -C `"$Repo`" switch $objetivo) y vuelve a correr el esqueleto." }
         if (@(& git -C $Repo status --porcelain).Count -gt 0) { Detener "$Repo tiene cambios sin commitear: commitéalos o guárdalos antes de empezar el módulo." }
         if ($rama -ne 'develop') { & git -C $Repo switch develop 2>&1 | Out-Null; if ($LASTEXITCODE -ne 0) { Detener "$Repo no tiene rama develop." } }
         & git -C $Repo rev-parse --abbrev-ref '@{u}' 2>&1 | Out-Null
@@ -81,10 +85,13 @@ function Copiar([string]$Origen, [string]$Destino, [object[]]$Cambios) {
         $relativo = $archivo.FullName.Substring($Origen.Length).TrimStart('\')
         foreach ($c in $Cambios) { $relativo = $relativo.Replace($c[0], $c[1]) }
         $final = Join-Path $Destino $relativo
-        if (Test-Path $final) { Write-Host "  · ya existe, no lo toco: $relativo" -ForegroundColor DarkYellow; continue }
+        # .NET y no Test-Path/New-Item: las rutas de Next llevan corchetes ([id]) y PowerShell los toma como comodín.
+        if ([IO.File]::Exists($final)) { Write-Host "  · ya existe, no lo toco: $relativo" -ForegroundColor DarkYellow; continue }
         $texto = [IO.File]::ReadAllText($archivo.FullName, $utf8)
         foreach ($c in $Cambios) { $texto = $texto.Replace($c[0], $c[1]) }
-        New-Item -ItemType Directory -Force (Split-Path $final) | Out-Null
+        # CRLF, como pide el .gitattributes de los repos (eol=crlf): si no, git add avisa archivo por archivo.
+        $texto = $texto -replace "`r?`n", "`r`n"
+        [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($final))
         [IO.File]::WriteAllText($final, $texto, $utf8)
         $creados += $relativo
     }
@@ -112,35 +119,65 @@ Write-Host "Módulo $Modulo ($Entidad) en $($proyecto.nombre)" -ForegroundColor 
 # Todo lo que se puede calcular o rechazar va antes de escribir el primer archivo (si no, un error deja el módulo a medias).
 $numero = Siguiente (Join-Path $carpeta 'bd')
 $carpetaSeg = $null; $numeroSeg = $null; $yaEsta = $null
-if ($seg) {
+if ($seg -and -not $soloWeb) {
     $carpetaSeg = Join-Path $Espacio $seg.carpeta
     $yaEsta = Get-ChildItem (Join-Path $carpetaSeg 'bd') -Filter *.sql |
         Where-Object { [IO.File]::ReadAllText($_.FullName, $utf8).Contains("N'$Servicio.leer'") } | Select-Object -First 1
     if (-not $yaEsta) { $numeroSeg = Siguiente (Join-Path $carpetaSeg 'bd') }
 }
-$ramaServicio = PrepararRama $carpeta
+# La web: las pantallas del módulo van en nova-web. Solo se reemplaza la página «Conectado a…» que deja el
+# arquetipo; cualquier otra página del módulo es trabajo de alguien y no se pisa.
+$web = $registro | Where-Object { $_.tipo -eq 'web' } | Select-Object -First 1
+$carpetaWeb = $null; $paginaVieja = $null
+$webEstado = 'sin proyecto web registrado (las pantallas llegan cuando exista: arquetipo -Tipo web)'
+if ($web) {
+    $carpetaWeb = Join-Path $Espacio $web.carpeta
+    $pagina = Join-Path $carpetaWeb "app\(privado)\$moduloMin\page.tsx"
+    if ([IO.File]::Exists((Join-Path $carpetaWeb "features\$moduloMin\api.ts"))) {
+        $webEstado = "$($web.nombre) ya tiene las pantallas de $Modulo`: no las toco"; $carpetaWeb = $null
+    }
+    elseif ([IO.File]::Exists($pagina)) {
+        if ([IO.File]::ReadAllText($pagina, $utf8).Contains('nuevo-modulo</code>')) { $paginaVieja = $pagina }
+        else { $webEstado = "$($web.nombre): app\(privado)\$moduloMin\page.tsx ya existe y no es la del arquetipo: no la piso (pantallas sin crear)"; $carpetaWeb = $null }
+    }
+}
+if ($soloWeb -and -not $carpetaWeb) { Detener "El módulo $Modulo ya existe en $($proyecto.nombre) y no hay pantallas que agregar ($webEstado). No sobrescribo módulos." }
+# El servicio con el módulo ya hecho no cambia de rama: su feature/ (y su PR) siguen como estaban.
+$ramaServicio = if ($soloWeb) { "ya tiene el módulo $Modulo (backend): no lo toco" } else { PrepararRama $carpeta }
 $ramaSeg = if ($numeroSeg) { PrepararRama $carpetaSeg } else { $null }
+$ramaWeb = if ($carpetaWeb) { PrepararRama $carpetaWeb } else { $null }
 # Pares (no un hashtable: en PowerShell las claves no distinguen mayúsculas y __Modulo__ chocaría con __modulo__).
 $cambios = @(
     @('__NNNN__', $numero), @('__Servicio__', $ServicioP), @('__servicio__', $Servicio),
     @('__Modulo__', $Modulo), @('__modulo__', $moduloMin), @('__Entidad__', $Entidad), @('__entidad__', $entidadCamel))
-$creados = Copiar (Join-Path $plantillas 'servicio') $carpeta $cambios
-
-$adaptadores = Join-Path $carpeta "src\03. Interface Adapter\Nova.$ServicioP.Adaptadores\Gateways\RegistroGateways.cs"
-Registrar $adaptadores @("// módulo $Modulo", "servicios.AddScoped<IRepositorio$Modulo, Repositorio$Modulo>();") `
-    @("using Nova.$ServicioP.Adaptadores.Gateways.$Modulo", "using Nova.$ServicioP.Dominio.$Modulo")
-Registrar (Join-Path $carpeta "src\02. Application Rules Model\Nova.$ServicioP.Aplicacion\RegistroAplicacion.cs") `
-    @("// módulo $Modulo · TODO(nuevo-modulo): servicios.AddScoped<IPuerto, CasoDeUso>(); por cada caso de uso") $null
+$creados = @()
+if (-not $soloWeb) {
+    $creados = Copiar (Join-Path $plantillas 'servicio') $carpeta $cambios
+    $adaptadores = Join-Path $carpeta "src\03. Interface Adapter\Nova.$ServicioP.Adaptadores\Gateways\RegistroGateways.cs"
+    Registrar $adaptadores @("// módulo $Modulo", "servicios.AddScoped<IRepositorio$Modulo, Repositorio$Modulo>();") `
+        @("using Nova.$ServicioP.Adaptadores.Gateways.$Modulo", "using Nova.$ServicioP.Dominio.$Modulo")
+    Registrar (Join-Path $carpeta "src\02. Application Rules Model\Nova.$ServicioP.Aplicacion\RegistroAplicacion.cs") `
+        @("// módulo $Modulo · TODO(nuevo-modulo): servicios.AddScoped<IPuerto, CasoDeUso>(); por cada caso de uso") $null
+}
 
 # 4. Permisos: el primer módulo de un servicio trae sus scopes a nova-seguridad ---------------------
 $permisos = 'sin proyecto de seguridad registrado'
-if ($yaEsta) { $permisos = "$($seg.nombre) ya da $Servicio.leer/.escribir ($($yaEsta.Name))" }
+if ($soloWeb) { $permisos = 'los del módulo, que ya existe (no los toco)' }
+elseif ($yaEsta) { $permisos = "$($seg.nombre) ya da $Servicio.leer/.escribir ($($yaEsta.Name))" }
 elseif ($numeroSeg) {
     $nuevos = Copiar (Join-Path $plantillas 'seguridad') $carpetaSeg @(@('__NNNN__', $numeroSeg), @('__servicio__', $Servicio))
     $permisos = "$($seg.nombre): $($nuevos -join ', ') · $ramaSeg"
 }
 
-# 5. Resumen ----------------------------------------------------------------------------------------
+# 5. Web: listado, detalle y formulario del módulo, con la franja «usuario · rol · permisos» -----------
+if ($carpetaWeb) {
+    if ($paginaVieja) { [IO.File]::Delete($paginaVieja) }
+    $deWeb = @(Copiar (Join-Path $plantillas 'web') $carpetaWeb $cambios)
+    $reemplazo = if ($paginaVieja) { ' · reemplaza la página «Conectado a…» del arquetipo' } else { '' }
+    $webEstado = "$($web.nombre): $($deWeb.Count) archivos en features\$moduloMin\, app\(privado)\$moduloMin\ y tests\$reemplazo · $ramaWeb"
+}
+
+# 6. Resumen ----------------------------------------------------------------------------------------
 Write-Host ''
 Write-Host "$($proyecto.nombre) · $ramaServicio" -ForegroundColor Green
 $capas = [ordered]@{ '01. Business' = 'Dominio'; '02. Application' = 'Aplicación'; '03. Interface' = 'Adaptadores'; 'tests' = 'Pruebas'; 'bd' = 'Base'; 'docs' = 'Ficha' }
@@ -149,8 +186,17 @@ foreach ($c in $capas.Keys) {
     if ($deCapa.Count) { Write-Host ("  {0,-12} {1}" -f $capas[$c], ($deCapa -join ' · ')) }
 }
 Write-Host "  Permisos     $permisos"
+Write-Host "  Web          $webEstado"
 Write-Host ''
-& dotnet build $carpeta --nologo -v q 2>&1 | Out-Null
-if ($LASTEXITCODE -eq 0) { Write-Host '✅ El esqueleto compila.' -ForegroundColor Green }
-else { Write-Host '❌ El esqueleto no compila: revisa con dotnet build.' -ForegroundColor Red; exit 1 }
-Write-Host "Siguiente: llenar docs\modulos\$moduloMin.md (la ficha) y escribir cada TODO(nuevo-modulo); después scripts\verificar.ps1 -Servicio $Servicio -Modulo $moduloMin"
+if (-not $soloWeb) {
+    & dotnet build $carpeta --nologo -v q 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0) { Write-Host '✅ El esqueleto compila.' -ForegroundColor Green }
+    else { Write-Host '❌ El esqueleto no compila: revisa con dotnet build.' -ForegroundColor Red; exit 1 }
+}
+if ($carpetaWeb -and [IO.Directory]::Exists((Join-Path $carpetaWeb 'node_modules'))) {
+    Push-Location $carpetaWeb
+    try { & cmd /c 'npx tsc --noEmit 2>&1' | Out-Null } finally { Pop-Location }
+    if ($LASTEXITCODE -eq 0) { Write-Host '✅ Las pantallas pasan TypeScript.' -ForegroundColor Green }
+    else { Write-Host "❌ Las pantallas no pasan TypeScript: revisa con npx tsc --noEmit en $($web.nombre)." -ForegroundColor Red; exit 1 }
+}
+Write-Host "Siguiente: llenar docs\modulos\$moduloMin.md (la ficha) y escribir cada TODO(nuevo-modulo) (servicio y web); después scripts\verificar.ps1 -Servicio $Servicio -Modulo $moduloMin"
