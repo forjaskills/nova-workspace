@@ -3,6 +3,21 @@
 Espacio de trabajo de la serie **«Tu flujo de dev con skills»** del canal Forja Skills: un equipo de desarrollo
 ficticio, Nova Retail, que construye su sistema con Claude Code y skills, un video a la vez.
 
+## Curso completo: Claude Code para programadores
+
+**▶ Video (1 h 41 min, en español): https://youtu.be/uD1qW-jHs-M**
+
+El curso usa este espacio de trabajo de punta a punta. Lo que agrega (tag `curso`):
+
+| Archivo | Qué es | Módulo |
+|---|---|---|
+| `CLAUDE.md` | Lo que un dev nuevo necesita saber del proyecto: proyectos, comandos y reglas del equipo. Claude Code lo lee al empezar cada sesión | M4 |
+| `.claude/agents/revisor-arquitectura.md` | Subagente que revisa cambios contra las reglas de arquitectura. Solo lee: reporta, no corrige | M10 |
+| `.claude/hooks/bloquear-main.ps1` | Hook antes de cada comando: frena commit y push en `main`, aunque se lo pidas por chat | M11 |
+| `.claude/hooks/formato-cs.ps1` | Hook después de cada edición de un `.cs`: corrige solo espacios y sangría con `dotnet format whitespace` | M11 |
+| `.claude/settings.json` | Registra los dos hooks | M11 |
+| `prompts/curso.md` | Todos los prompts de los módulos nuevos, explicados uno por uno | M1–M12 |
+
 Aquí viven las **skills del proyecto** (`.claude/skills/`). Los proyectos que crean quedan en `proyectos/` y cada uno
 se sube a su propio repositorio.
 
