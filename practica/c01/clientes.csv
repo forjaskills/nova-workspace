@@ -1,0 +1,16 @@
+﻿id_cliente,nombre,ciudad,pais,categoria_favorita,compras_trimestre,ultimo_pedido
+C-001,Lucía Fernández,Lima,Perú,Moda,6,2026-09-28
+C-002,Mateo Rojas,Bogotá,Colombia,Electrónica,3,2026-08-14
+C-003,Valentina Cruz,Ciudad de México,México,Belleza,9,2026-09-30
+C-004,Santiago Díaz,Buenos Aires,Argentina,Deportes,4,2026-09-12
+C-005,Camila Torres,Santiago,Chile,Hogar,7,2026-09-25
+C-006,Diego Herrera,Madrid,España,Electrónica,2,2026-07-30
+C-007,Sofía Ramírez,Quito,Ecuador,Moda,5,2026-09-19
+C-008,Andrés Molina,Guadalajara,México,Deportes,8,2026-09-29
+C-009,Isabella Vargas,Medellín,Colombia,Belleza,3,2026-08-03
+C-010,Javier Castro,Montevideo,Uruguay,Hogar,6,2026-09-21
+C-011,Martina Silva,Arequipa,Perú,Electrónica,1,2026-07-11
+C-012,Tomás Gutiérrez,Córdoba,Argentina,Moda,4,2026-09-08
+C-013,Renata Paredes,La Paz,Bolivia,Hogar,2,2026-08-22
+C-014,Nicolás Fuentes,Valencia,España,Deportes,5,2026-09-27
+C-015,Gabriela Ortiz,San José,Costa Rica,Belleza,7,2026-09-30
